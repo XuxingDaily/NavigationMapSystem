@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Navigation</title>
+</head>
+
+<body>
+  <main class="container">
+    <div class="logo">小谷围岛导航</div>
+    <div class="header">
+      <div class="author">戴钊龙</div>
+    </div>
+    <div class="map" id="map"></div>
+    <div class="layer-container">
+      <h2>Search</h2>
+      <div class="toggle-button" id="toggleButton">
+        <div class="toggle-button-inner"></div>
+      </div>
+      <div class="toggle-button-text">自驾模式</div>
+      <div class="search-box">
+        <label for="start-input">起点：</label>
+        <input type="text" id="start-input" placeholder="起点名称">
+        <div class="search-results" id="start-results">
+          <!-- 选项内容 -->
+        </div>
+      </div>
+      <div class="search-box">
+        <label for="end-input">终点：</label>
+        <input type="text" id="end-input" placeholder="终点名称">
+        <div class="search-results" id="end-results">
+          <!-- 选项内容 -->
+        </div>
+      </div>
+      <button id="search-button">搜索</button>
+    </div>
+    <div class="info">
+      <h2 class="off">Info</h2>
+      <div id="station_info" class="station_info"></div>
+    </div>
+  </main>
+</body>
+</html>
