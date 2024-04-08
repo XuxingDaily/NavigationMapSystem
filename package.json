@@ -1,13 +1,13 @@
 {
   "name": "navigation_gz",
   "version": "1.0.0",
-  "description": "小谷围岛导航系统",
+  "description": "广州市大学城导航地图系统",
   "scripts": {
     "watch": "npx webpack --watch",
     "build": "npx webpack",
     "start": "nodemon app.js"
   },
-  "author": "戴钊龙",
+  "author": "XuxingDaily",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.4.0",
