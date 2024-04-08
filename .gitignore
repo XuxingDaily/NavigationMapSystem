@@ -1,4 +1,4 @@
 /*.docx
-/dist
-/node_mudules
-/.vscode
+dist/
+node_mudules/
+.vscode/
