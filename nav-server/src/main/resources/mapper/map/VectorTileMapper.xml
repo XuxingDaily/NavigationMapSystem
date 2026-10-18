@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="zhaolong.dai.nav.map.mapper.VectorTileMapper">
+
+    <select id="existsEnabledLayer" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM public.map_layer
+            WHERE code = #{layerCode} AND enabled = true
+        )
+    </select>
+
+    <select id="selectVectorTile" resultType="zhaolong.dai.nav.map.mapper.model.VectorTileRow">
+        SELECT public.get_local_vector_tile(
+            CAST(#{layerCode} AS VARCHAR),
+            CAST(#{z} AS INTEGER),
+            CAST(#{x} AS INTEGER),
+            CAST(#{y} AS INTEGER)
+        ) AS tile
+    </select>
+
+    <select id="selectBaseVectorTile" resultType="zhaolong.dai.nav.map.mapper.model.VectorTileRow">
+        SELECT public.get_local_base_vector_tile(
+            CAST(#{z} AS INTEGER),
+            CAST(#{x} AS INTEGER),
+            CAST(#{y} AS INTEGER)
+        ) AS tile
+    </select>
+
+</mapper>

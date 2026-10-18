@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="zhaolong.dai.nav.routing.mapper.RoutingMapper">
+
+    <sql id="routingEdgesSql">
+        SELECT
+            id,
+            source,
+            target,
+            <choose>
+                <when test="travelMode == 'DRIVING' and strategy == 'SHORTEST'">
+                    CASE WHEN driving_cost_s > 0 THEN length_m ELSE -1.0 END::FLOAT8 AS cost,
+                    CASE WHEN driving_reverse_s > 0 THEN length_m ELSE -1.0 END::FLOAT8 AS reverse_cost
+                </when>
+                <when test="travelMode == 'DRIVING'">
+                    CASE WHEN driving_cost_s > 0 THEN driving_cost_s ELSE -1.0 END::FLOAT8 AS cost,
+                    CASE WHEN driving_reverse_s > 0 THEN driving_reverse_s ELSE -1.0 END::FLOAT8 AS reverse_cost
+                </when>
+                <when test="strategy == 'SHORTEST'">
+                    CASE WHEN walking_cost_s > 0 THEN length_m ELSE -1.0 END::FLOAT8 AS cost,
+                    CASE WHEN walking_reverse_s > 0 THEN length_m ELSE -1.0 END::FLOAT8 AS reverse_cost
+                </when>
+                <otherwise>
+                    CASE WHEN walking_cost_s > 0 THEN walking_cost_s ELSE -1.0 END::FLOAT8 AS cost,
+                    CASE WHEN walking_reverse_s > 0 THEN walking_reverse_s ELSE -1.0 END::FLOAT8 AS reverse_cost
+                </otherwise>
+            </choose>
+        FROM public.road_edge
+        WHERE status = 'active'
+        <choose>
+            <when test="travelMode == 'DRIVING'">
+                AND COALESCE(access_car, true)
+                AND driving_cost_s > 0
+            </when>
+            <otherwise>
+                AND COALESCE(access_walk, true)
+                AND walking_cost_s > 0
+            </otherwise>
+        </choose>
+    </sql>
+
+    <select id="selectNearestEdge" resultType="zhaolong.dai.nav.routing.mapper.model.SnapRow">
+        WITH query_point AS (
+            SELECT ST_SetSRID(ST_MakePoint(#{x}, #{y}), 0) AS geom
+        ), candidate AS (
+            SELECT
+                edge.id AS edge_id,
+                edge.geom_local,
+                edge.network_version,
+                query.geom AS query_geom
+            FROM public.road_edge edge
+            CROSS JOIN query_point query
+            WHERE edge.status = 'active'
+              <choose>
+                  <when test="travelMode == 'DRIVING'">
+                      AND COALESCE(edge.access_car, true)
+                      AND edge.driving_cost_s > 0
+                  </when>
+                  <otherwise>
+                      AND COALESCE(edge.access_walk, true)
+                      AND edge.walking_cost_s > 0
+                  </otherwise>
+              </choose>
+              AND ST_DWithin(edge.geom_local, query.geom, #{maxDistanceLocal})
+            ORDER BY edge.geom_local &lt;-&gt; query.geom, edge.id
+            LIMIT 1
+        ), snapped AS (
+            SELECT
+                edge_id,
+                geom_local,
+                network_version,
+                query_geom,
+                ST_ClosestPoint(geom_local, query_geom) AS snapped_geom
+            FROM candidate
+        )
+        SELECT
+            edge_id AS edgeId,
+            ST_LineLocatePoint(geom_local, snapped_geom) AS fraction,
+            ST_X(snapped_geom) AS snappedX,
+            ST_Y(snapped_geom) AS snappedY,
+            ST_Distance(query_geom, snapped_geom) AS distanceLocal,
+            network_version AS networkVersion
+        FROM snapped
+    </select>
+
+    <select id="selectRoute" resultType="zhaolong.dai.nav.routing.mapper.model.RouteRow">
+        WITH route_result AS (
+            SELECT
+                route.*,
+                LEAD(route.node) OVER (ORDER BY route.path_seq) AS next_node
+            FROM pgr_withPoints(
+                $edges$
+                    <include refid="routingEdgesSql"/>
+                $edges$,
+                format(
+                    $points$
+                        SELECT *
+                        FROM (VALUES
+                            (1::BIGINT, %L::BIGINT, %L::FLOAT8, 'b'::CHAR(1)),
+                            (2::BIGINT, %L::BIGINT, %L::FLOAT8, 'b'::CHAR(1))
+                        ) AS point(pid, edge_id, fraction, side)
+                    $points$,
+                    #{origin.edgeId},
+                    #{origin.fraction},
+                    #{destination.edgeId},
+                    #{destination.fraction}
+                ),
+                -1::BIGINT,
+                -2::BIGINT,
+                directed => true,
+                driving_side => 'b',
+                details => true
+            ) route
+        ), fractions AS (
+            SELECT
+                route.path_seq,
+                route.edge,
+                edge.geom_local,
+                edge.network_version,
+                edge.driving_cost_s,
+                edge.driving_reverse_s,
+                edge.walking_cost_s,
+                edge.walking_reverse_s,
+                CASE
+                    WHEN route.node = -1 THEN #{origin.fraction}
+                    WHEN route.node = -2 THEN #{destination.fraction}
+                    WHEN route.node = edge.source THEN 0.0
+                    WHEN route.node = edge.target THEN 1.0
+                END AS from_fraction,
+                CASE
+                    WHEN route.next_node = -1 THEN #{origin.fraction}
+                    WHEN route.next_node = -2 THEN #{destination.fraction}
+                    WHEN route.next_node = edge.source THEN 0.0
+                    WHEN route.next_node = edge.target THEN 1.0
+                END AS to_fraction
+            FROM route_result route
+            JOIN public.road_edge edge ON edge.id = route.edge
+            WHERE route.edge >= 0
+        ), parts AS (
+            SELECT
+                path_seq,
+                network_version,
+                CASE
+                    WHEN from_fraction &lt; to_fraction THEN cut_geom
+                    ELSE ST_Reverse(cut_geom)
+                END AS geom,
+                <choose>
+                    <when test="travelMode == 'DRIVING'">
+                        CASE
+                            WHEN from_fraction &lt; to_fraction THEN driving_cost_s
+                            ELSE driving_reverse_s
+                        END * ABS(to_fraction - from_fraction) AS duration_seconds
+                    </when>
+                    <otherwise>
+                        CASE
+                            WHEN from_fraction &lt; to_fraction THEN walking_cost_s
+                            ELSE walking_reverse_s
+                        END * ABS(to_fraction - from_fraction) AS duration_seconds
+                    </otherwise>
+                </choose>
+            FROM fractions
+            CROSS JOIN LATERAL (
+                SELECT ST_LineSubstring(
+                    geom_local,
+                    LEAST(from_fraction, to_fraction),
+                    GREATEST(from_fraction, to_fraction)
+                ) AS cut_geom
+            ) cut
+            WHERE from_fraction IS NOT NULL
+              AND to_fraction IS NOT NULL
+              AND from_fraction &lt;> to_fraction
+        )
+        SELECT
+            SUM(ST_Length(geom))::FLOAT8 AS distanceLocal,
+            SUM(duration_seconds)::FLOAT8 AS durationSeconds,
+            ST_AsText(ST_MakeLine(geom ORDER BY path_seq)) AS geometryWkt,
+            MAX(network_version) AS networkVersion
+        FROM parts
+        HAVING COUNT(*) > 0
+    </select>
+
+    <select id="selectCostMatrix" resultType="zhaolong.dai.nav.routing.mapper.model.CostMatrixRow">
+        SELECT
+            ABS(cost.start_vid) AS startPid,
+            ABS(cost.end_vid) AS endPid,
+            cost.agg_cost AS aggCost
+        FROM pgr_withPointsCostMatrix(
+            $edges$
+                <include refid="routingEdgesSql"/>
+            $edges$,
+            format(
+                $points$
+                    SELECT pid, edge_id, fraction, side
+                    FROM jsonb_to_recordset(%L::JSONB)
+                    AS point(pid BIGINT, edge_id BIGINT, fraction FLOAT8, side CHAR(1))
+                $points$,
+                CAST(#{pointsJson} AS JSONB)
+            ),
+            ARRAY(
+                SELECT -point.pid
+                FROM jsonb_to_recordset(CAST(#{pointsJson} AS JSONB))
+                AS point(pid BIGINT)
+                ORDER BY point.pid
+            )::BIGINT[],
+            directed => true,
+            driving_side => 'b'
+        ) cost
+        ORDER BY startPid, endPid
+    </select>
+
+</mapper>

@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="zhaolong.dai.nav.poi.mapper.PoiMapper">
+
+    <select id="selectByKeyword" resultType="zhaolong.dai.nav.poi.mapper.model.PoiRow">
+        SELECT
+            id,
+            name,
+            context,
+            ST_X(geom_local) AS x,
+            ST_Y(geom_local) AS y,
+            coordinate_status AS coordinateStatus,
+            data_version AS dataVersion
+        FROM public.poi
+        WHERE status = 'active'
+
+        <if test="keyword != null and keyword != ''">
+            AND name ILIKE '%' || #{keyword} || '%'
+        </if>
+
+        ORDER BY name, id
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectDetailById" resultType="zhaolong.dai.nav.poi.mapper.model.PoiRow">
+        SELECT
+            id,
+            name,
+            context,
+            ST_X(geom_local) AS x,
+            ST_Y(geom_local) AS y,
+            coordinate_status AS coordinateStatus,
+            data_version AS dataVersion
+        FROM public.poi
+        WHERE id = #{id}
+        AND status = 'active'
+    </select>
+
+    <select id="selectPoiByCircle" resultType="zhaolong.dai.nav.poi.mapper.model.PoiRow">
+        WITH query_point AS (
+            SELECT ST_SetSRID(ST_MakePoint(
+                        CAST(#{x} AS DOUBLE PRECISION),
+                        CAST(#{y} AS DOUBLE PRECISION)
+                    ), 0) AS geom
+        )
+
+        SELECT
+            p.id,
+            p.name,
+            p.context,
+            ST_X(p.geom_local) AS x,
+            ST_Y(p.geom_local) AS y,
+            p.coordinate_status AS coordinateStatus,
+            p.data_version AS dataVersion
+        FROM poi p
+        CROSS JOIN query_point q
+        WHERE p.status = 'active'
+          AND ST_DWithin(
+                p.geom_local,
+                q.geom,
+                #{radius}
+              )
+        ORDER BY
+            p.geom_local &lt;-&gt; q.geom,
+            p.id
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectByViewport" resultType="zhaolong.dai.nav.poi.mapper.model.PoiRow">
+        WITH viewport AS (
+            SELECT ST_MakeEnvelope(
+                        #{viewport[0]},
+                        #{viewport[1]},
+                        #{viewport[2]},
+                        #{viewport[3]},
+                        0
+                    ) AS geom
+        )
+
+        SELECT
+            p.id,
+            p.name,
+            p.context,
+            ST_X(p.geom_local) AS x,
+            ST_Y(p.geom_local) AS y,
+            p.coordinate_status AS coordinateStatus,
+            p.data_version AS dataVersion
+        FROM poi p
+        CROSS JOIN viewport v
+        WHERE p.status = 'active'
+          AND p.geom_local &amp;&amp; v.geom
+          AND ST_Intersects(p.geom_local, v.geom)
+        LIMIT #{limit}
+    </select>
+
+    <!--
+        空间缓存冷加载使用。一次查询一批缺失网格的总体范围，
+        不应用业务 limit，避免缓存单元缺少 POI。
+    -->
+    <select id="selectByBounds" resultType="zhaolong.dai.nav.poi.mapper.model.PoiRow">
+        WITH query_bounds AS (
+            SELECT ST_MakeEnvelope(
+                        #{minX},
+                        #{minY},
+                        #{maxX},
+                        #{maxY},
+                        0
+                    ) AS geom
+        )
+        SELECT
+            p.id,
+            p.name,
+            p.context,
+            ST_X(p.geom_local) AS x,
+            ST_Y(p.geom_local) AS y,
+            p.coordinate_status AS coordinateStatus,
+            p.data_version AS dataVersion
+        FROM public.poi p
+        CROSS JOIN query_bounds b
+        WHERE p.status = 'active'
+          AND p.geom_local &amp;&amp; b.geom
+          AND ST_Intersects(p.geom_local, b.geom)
+        ORDER BY p.id
+    </select>
+
+</mapper>

@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: nav-server
+
+  config:
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:../.env[.properties]
+
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/nav}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    validate-migration-naming: true
+    # 当前开发库已经完成一次 V5 baseline。默认关闭可避免误接管结构未知的非空库；
+    # 另一套同结构旧库首次接入时，临时设置 FLYWAY_BASELINE_ON_MIGRATE=true。
+    baseline-on-migrate: ${FLYWAY_BASELINE_ON_MIGRATE:false}
+    baseline-version: 5
+    baseline-description: existing-schema-before-flyway
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      connect-timeout: 2s
+      timeout: 2s
+
+nav:
+  cache:
+    cache-schema-version: 1
+    poi-detail-ttl: 30m
+    poi-query-ttl: 5m
+    poi-spatial-ttl: 1h
+    poi-spatial-zoom: 4
+    vector-tile-ttl: 7d
+    road-snap-ttl: 10m
+    route-ttl: 20m
+    matrix-ttl: 10m
+    key-prefix: nav
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+
+server:
+  port: ${SERVER_PORT:8080}
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+  packages-to-scan:
+    - zhaolong.dai.nav
+
+logging:
+  level:
+    zhaolong.dai.nav.map.mapper: DEBUG
+
